@@ -1,22 +1,14 @@
 import Foundation
 
-/// A model representing an internet radio stream.
-public struct RadioStream: Equatable, Codable {
+public struct RadioStream {
     public let name: String
     public let url: URL
-    
-    public init(name: String, url: URL) {
-        self.name = name
-        self.url = url
-    }
 }
 
-/// Errors that might occur when parsing radio stream files.
-public enum RadioStreamError: LocalizedError {
+public enum RadioStreamError: Error, LocalizedError {
     case directoryNotFound(String)
-    case fileReadFailed(String, underlying: Error)
+    case fileReadFailed(String, Error)
     case invalidFormat(String)
-    case noStreamsFound(String)
     
     public var errorDescription: String? {
         switch self {
@@ -26,145 +18,107 @@ public enum RadioStreamError: LocalizedError {
             return "Failed to read file at \(path): \(underlying.localizedDescription)"
         case .invalidFormat(let message):
             return "Invalid format: \(message)"
-        case .noStreamsFound(let fileName):
-            return "No streams found in file: \(fileName)"
         }
     }
 }
 
-/// A provider that loads and parses radio stream data from m3u files.
-///
-/// This provider looks for m3u files in a directory (by default at
-/// "External/internet-radio-streams" relative to the package root) and parses
-/// each file for radio stream metadata.
-///
-/// The file is expected to start with the "#EXTM3U" header and then have pairs of lines:
-/// - A metadata line beginning with "#EXTINF:" (e.g. `#EXTINF:-1,Example Radio`)
-/// - A line with the stream URL.
 public class RadioStreamProvider {
+    public let streamsDirectory: URL
     
-    /// The directory URL that contains the m3u files.
-    private let streamsDirectory: URL
-    
-    /// Initializes the provider.
-    /// - Parameter streamsDirectory: The directory where m3u files are stored.
-    ///   If not provided, it defaults to a folder at "External/internet-radio-streams" relative to the current working directory.
     public init(streamsDirectory: URL? = nil) {
         if let dir = streamsDirectory {
             self.streamsDirectory = dir
         } else {
             let currentPath = FileManager.default.currentDirectoryPath
+            print("Current directory path: \(currentPath)")
             self.streamsDirectory = URL(fileURLWithPath: currentPath)
                 .appendingPathComponent("External")
                 .appendingPathComponent("internet-radio-streams")
         }
+        print("Using streamsDirectory: \(self.streamsDirectory.path)")
     }
     
-    /// Loads and parses all radio streams from available m3u files.
-    ///
-    /// - Returns: An array of `RadioStream` objects.
-    /// - Throws: A `RadioStreamError` if the directory does not exist or if file reading/parsing fails.
     public func loadStreams() throws -> [RadioStream] {
+        var streams: [RadioStream] = []
         let fileManager = FileManager.default
         
-        // Verify that the directory exists.
+        print("Checking existence of directory: \(streamsDirectory.path)")
         guard fileManager.fileExists(atPath: streamsDirectory.path) else {
-            throw RadioStreamError.directoryNotFound(streamsDirectory.path)
+            print("Directory not found at: \(streamsDirectory.path)")
+            throw RadioStreamError.directoryNotFound("Directory not found at path: \(streamsDirectory.path)")
         }
         
-        // Retrieve URLs for files in the directory and filter for those with a "m3u" extension.
-        let fileURLs = try fileManager.contentsOfDirectory(at: streamsDirectory,
-                                                           includingPropertiesForKeys: nil,
-                                                           options: .skipsHiddenFiles)
-            .filter { $0.pathExtension.lowercased() == "m3u" }
+        let files = try fileManager.contentsOfDirectory(atPath: streamsDirectory.path)
+        print("Found files: \(files)")
         
-        var streams: [RadioStream] = []
-        for fileURL in fileURLs {
+        let m3uFiles = files.filter { $0.lowercased().hasSuffix(".m3u") }
+        print("Filtered m3u files: \(m3uFiles)")
+        
+        var index = 0
+        for fileName in m3uFiles {
+            let fileURL = streamsDirectory.appendingPathComponent(fileName)
+            print("Parsing file: \(fileURL.path)")
             do {
                 let fileStreams = try parseM3UFile(at: fileURL)
                 streams.append(contentsOf: fileStreams)
             } catch {
-                // Log the error and continue with other files.
-                print("Error parsing file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                print("Error parsing \(fileName): \(error)")
             }
+        }
+        
+        if streams.isEmpty {
+            throw RadioStreamError.invalidFormat("No streams found in file(s) at \(streamsDirectory.lastPathComponent)")
         }
         return streams
     }
     
-    /// Parses an individual m3u file to extract radio streams.
-    ///
-    /// - Parameter fileURL: The URL of the m3u file.
-    /// - Returns: An array of `RadioStream` objects parsed from the file.
-    /// - Throws: A `RadioStreamError` if the file cannot be read or its format is invalid.
     private func parseM3UFile(at fileURL: URL) throws -> [RadioStream] {
-        // Read file contents as a string.
         let content: String
         do {
             content = try String(contentsOf: fileURL, encoding: .utf8)
         } catch {
-            throw RadioStreamError.fileReadFailed(fileURL.path, underlying: error)
+            throw RadioStreamError.fileReadFailed(fileURL.path, error)
         }
         
-        // Split the file into non-empty lines, trimming whitespace and newlines.
         let lines = content
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         
-        // Check that the file begins with the expected "#EXTM3U" header.
         guard let firstLine = lines.first, firstLine == "#EXTM3U" else {
             throw RadioStreamError.invalidFormat("File \(fileURL.lastPathComponent) does not start with the #EXTM3U header.")
         }
         
         var streams: [RadioStream] = []
-        var index = 1  // Start after the header.
+        var index = 1
         
-        // Iterate over the remaining lines.
         while index < lines.count {
-            let currentLine = lines[index]
-            
-            // If the line starts with "#EXTINF:", expect a metadata line.
-            if currentLine.hasPrefix("#EXTINF:") {
-                // Split the metadata line on the first comma.
-                let components = currentLine.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
+            let line = lines[index]
+            if line.hasPrefix("#EXTINF:") {
+                let components = line.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
                 guard components.count == 2 else {
+                    print("Skipping malformed metadata line: \(line)")
                     index += 1
                     continue
                 }
                 let streamName = String(components[1]).trimmingCharacters(in: .whitespaces)
                 
-                // The next non-empty line should be the URL.
                 index += 1
                 while index < lines.count && lines[index].isEmpty {
                     index += 1
                 }
-                guard index < lines.count else {
-                    throw RadioStreamError.invalidFormat("No URL found for stream named \(streamName) in file \(fileURL.lastPathComponent).")
+                if index < lines.count, let streamURL = URL(string: lines[index]) {
+                    streams.append(RadioStream(name: streamName, url: streamURL))
+                } else {
+                    print("Warning: No valid URL found for stream named \(streamName) in file \(fileURL.lastPathComponent)")
                 }
-                let urlString = lines[index]
-                guard let streamURL = URL(string: urlString) else {
-                    print("Warning: Invalid URL string \(urlString) for stream \(streamName) in file \(fileURL.lastPathComponent).")
-                    index += 1
-                    continue
-                }
-                streams.append(RadioStream(name: streamName, url: streamURL))
             }
             index += 1
-        }
-        
-        if streams.isEmpty {
-            throw RadioStreamError.noStreamsFound(fileURL.lastPathComponent)
         }
         return streams
     }
     
-    // MARK: - Asynchronous API (Optional)
-    
-    /// Asynchronously loads and parses all radio streams.
-    ///
-    /// - Returns: An array of `RadioStream` objects.
-    /// - Throws: A `RadioStreamError` if an error occurs.
-    /// - Note: Requires iOS 15.0, macOS 12.0, or later.
+    // Async version using Swift concurrency (iOS 15+/macOS 12+)
     @available(iOS 15.0, macOS 12.0, *)
     public func loadStreamsAsync() async throws -> [RadioStream] {
         return try await withCheckedThrowingContinuation { continuation in
