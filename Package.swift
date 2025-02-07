@@ -1,4 +1,4 @@
-// swift-tools-version:5.5
+// swift-tools-version:5.6
 import PackageDescription
 
 let package = Package(
@@ -19,7 +19,11 @@ let package = Package(
         .target(
             name: "SwiftRadioStreams",
             dependencies: [],
-            path: "Sources/SwiftRadioStreams"
+            path: "Sources/SwiftRadioStreams",
+            resources: [
+                // Adjust the relative path as needed; this example assumes that External is at the root of your package.
+                .copy("../../External/internet-radio-streams")
+            ]
         )
     ]
 )
