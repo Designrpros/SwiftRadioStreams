@@ -13,7 +13,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        // (No additional dependencies in this example)
+        // No additional dependencies
     ],
     targets: [
         .target(
@@ -21,7 +21,7 @@ let package = Package(
             dependencies: [],
             path: "Sources/SwiftRadioStreams",
             resources: [
-                // Adjust the relative path as needed; this example assumes that External is at the root of your package.
+                // Copy the external folder from two directories up (adjust the relative path if needed)
                 .copy("../../External/internet-radio-streams")
             ]
         )

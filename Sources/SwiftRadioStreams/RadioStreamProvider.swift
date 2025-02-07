@@ -1,8 +1,13 @@
 import Foundation
 
-public struct RadioStream {
+public struct RadioStream: Equatable, Codable {
     public let name: String
     public let url: URL
+
+    public init(name: String, url: URL) {
+        self.name = name
+        self.url = url
+    }
 }
 
 public enum RadioStreamError: Error, LocalizedError {
@@ -25,17 +30,21 @@ public enum RadioStreamError: Error, LocalizedError {
 public class RadioStreamProvider {
     public let streamsDirectory: URL
     
+    /// Initializes the provider.
+    /// - Parameter streamsDirectory: Optional override of the streams directory.
+    ///   If not provided, it will attempt to locate the "internet-radio-streams" folder in the package bundle.
     public init(streamsDirectory: URL? = nil) {
         if let dir = streamsDirectory {
             self.streamsDirectory = dir
+            print("Using provided streamsDirectory: \(self.streamsDirectory.path)")
         } else {
-            let currentPath = FileManager.default.currentDirectoryPath
-            print("Current directory path: \(currentPath)")
-            self.streamsDirectory = URL(fileURLWithPath: currentPath)
-                .appendingPathComponent("External")
-                .appendingPathComponent("internet-radio-streams")
+            // Attempt to locate the "internet-radio-streams" folder in the package resources.
+            guard let resourceURL = Bundle.module.url(forResource: "internet-radio-streams", withExtension: nil) else {
+                fatalError("Resource 'internet-radio-streams' not found in Bundle.module")
+            }
+            self.streamsDirectory = resourceURL
+            print("Using streamsDirectory from Bundle.module: \(self.streamsDirectory.path)")
         }
-        print("Using streamsDirectory: \(self.streamsDirectory.path)")
     }
     
     public func loadStreams() throws -> [RadioStream] {
@@ -54,7 +63,6 @@ public class RadioStreamProvider {
         let m3uFiles = files.filter { $0.lowercased().hasSuffix(".m3u") }
         print("Filtered m3u files: \(m3uFiles)")
         
-        var index = 0
         for fileName in m3uFiles {
             let fileURL = streamsDirectory.appendingPathComponent(fileName)
             print("Parsing file: \(fileURL.path)")
