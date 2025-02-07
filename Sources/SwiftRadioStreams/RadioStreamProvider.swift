@@ -32,28 +32,20 @@ public class RadioStreamProvider {
     
     /// Initializes the provider.
     /// - Parameter streamsDirectory: Optional override of the streams directory.
-    ///   If not provided, it will attempt to locate the "internet-radio-streams" folder in the package bundle (when built as a Swift package) or in the current directory fallback.
+    ///   If not provided, it will attempt to locate the "internet-radio-streams" folder in the bundle for this class.
     public init(streamsDirectory: URL? = nil) {
         if let dir = streamsDirectory {
             self.streamsDirectory = dir
             print("Using provided streamsDirectory: \(self.streamsDirectory.path)")
         } else {
-            #if SWIFT_PACKAGE
-            // When built via SPM, Bundle.module is available
-            guard let resourceURL = Bundle.module.url(forResource: "internet-radio-streams", withExtension: nil) else {
-                fatalError("Resource 'internet-radio-streams' not found in Bundle.module")
+            // Use the fallback: the bundle for this class.
+            let moduleBundle = Bundle(for: RadioStreamProvider.self)
+            // Attempt to locate the "internet-radio-streams" folder in the bundle.
+            guard let resourceURL = moduleBundle.url(forResource: "internet-radio-streams", withExtension: nil) else {
+                fatalError("Resource 'internet-radio-streams' not found in bundle: \(moduleBundle)")
             }
             self.streamsDirectory = resourceURL
-            print("Using streamsDirectory from Bundle.module: \(self.streamsDirectory.path)")
-            #else
-            // Fallback: use the current working directory (for example, during local testing)
-            let currentPath = FileManager.default.currentDirectoryPath
-            print("Current directory path: \(currentPath)")
-            self.streamsDirectory = URL(fileURLWithPath: currentPath)
-                .appendingPathComponent("External")
-                .appendingPathComponent("internet-radio-streams")
-            print("Using fallback streamsDirectory: \(self.streamsDirectory.path)")
-            #endif
+            print("Using streamsDirectory from bundle: \(self.streamsDirectory.path)")
         }
     }
     
@@ -140,7 +132,11 @@ public class RadioStreamProvider {
     @available(iOS 15.0, macOS 12.0, *)
     public func loadStreamsAsync() async throws -> [RadioStream] {
         return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(throwing: RadioStreamError.invalidFormat("Self was deallocated"))
+                    return
+                }
                 do {
                     let streams = try self.loadStreams()
                     continuation.resume(returning: streams)
@@ -151,3 +147,7 @@ public class RadioStreamProvider {
         }
     }
 }
+
+#if swift(>=5.6)
+extension RadioStreamProvider: @unchecked Sendable {}
+#endif
