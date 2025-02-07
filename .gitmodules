@@ -1,0 +1,3 @@
+[submodule "External/internet-radio-streams"]
+	path = External/internet-radio-streams
+	url = https://github.com/mikepierce/internet-radio-streams.git
