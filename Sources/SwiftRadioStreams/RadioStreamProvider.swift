@@ -32,18 +32,28 @@ public class RadioStreamProvider {
     
     /// Initializes the provider.
     /// - Parameter streamsDirectory: Optional override of the streams directory.
-    ///   If not provided, it will attempt to locate the "internet-radio-streams" folder in the package bundle.
+    ///   If not provided, it will attempt to locate the "internet-radio-streams" folder in the package bundle (when built as a Swift package) or in the current directory fallback.
     public init(streamsDirectory: URL? = nil) {
         if let dir = streamsDirectory {
             self.streamsDirectory = dir
             print("Using provided streamsDirectory: \(self.streamsDirectory.path)")
         } else {
-            // Attempt to locate the "internet-radio-streams" folder in the package resources.
+            #if SWIFT_PACKAGE
+            // When built via SPM, Bundle.module is available
             guard let resourceURL = Bundle.module.url(forResource: "internet-radio-streams", withExtension: nil) else {
                 fatalError("Resource 'internet-radio-streams' not found in Bundle.module")
             }
             self.streamsDirectory = resourceURL
             print("Using streamsDirectory from Bundle.module: \(self.streamsDirectory.path)")
+            #else
+            // Fallback: use the current working directory (for example, during local testing)
+            let currentPath = FileManager.default.currentDirectoryPath
+            print("Current directory path: \(currentPath)")
+            self.streamsDirectory = URL(fileURLWithPath: currentPath)
+                .appendingPathComponent("External")
+                .appendingPathComponent("internet-radio-streams")
+            print("Using fallback streamsDirectory: \(self.streamsDirectory.path)")
+            #endif
         }
     }
     
