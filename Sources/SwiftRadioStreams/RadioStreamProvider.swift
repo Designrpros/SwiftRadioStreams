@@ -1,12 +1,10 @@
-#if !SWIFT_PACKAGE
-// Fallback: Define Bundle.module if not built as a Swift Package.
+// Always define Bundle.module via a fallback for environments where it isn’t synthesized.
 private class DummyBundle {}
 extension Bundle {
     static var module: Bundle {
         return Bundle(for: DummyBundle.self)
     }
 }
-#endif
 
 import Foundation
 
@@ -43,20 +41,41 @@ public class RadioStreamProvider {
     
     /// Initializes the provider.
     /// - Parameter streamsDirectory: Optional override of the streams directory.
-    ///   If not provided, it will attempt to locate the "internet-radio-streams" folder in the bundle.
+    ///   If not provided, it will attempt to locate the "internet-radio-streams" folder using one of several methods:
+    ///   1. Try Bundle.module.
+    ///   2. Otherwise, try Bundle.main.
+    ///   3. Finally, fall back to a relative path based on the current directory.
     public init(streamsDirectory: URL? = nil) {
         if let dir = streamsDirectory {
             self.streamsDirectory = dir
             print("Using provided streamsDirectory: \(self.streamsDirectory.path)")
         } else {
-            // Use the fallback: use the bundle for this class.
-            let moduleBundle = Bundle(for: RadioStreamProvider.self)
-            print("Using module bundle: \(moduleBundle)")
-            guard let resourceURL = moduleBundle.url(forResource: "internet-radio-streams", withExtension: nil) else {
-                fatalError("Resource 'internet-radio-streams' not found in bundle: \(moduleBundle)")
+            var resourceURL: URL? = nil
+            
+            print("Attempting to locate resource using Bundle.module...")
+            resourceURL = Bundle.module.url(forResource: "internet-radio-streams", withExtension: nil)
+            
+            if resourceURL == nil {
+                print("Bundle.module did not yield resource. Trying Bundle.main...")
+                resourceURL = Bundle.main.url(forResource: "internet-radio-streams", withExtension: nil)
             }
-            self.streamsDirectory = resourceURL
-            print("Using streamsDirectory from bundle: \(self.streamsDirectory.path)")
+            
+            if resourceURL == nil {
+                let currentPath = FileManager.default.currentDirectoryPath
+                let fallbackURL = URL(fileURLWithPath: currentPath)
+                    .appendingPathComponent("External")
+                    .appendingPathComponent("internet-radio-streams")
+                print("Bundle.main did not yield resource. Constructed fallback URL: \(fallbackURL.path)")
+                if FileManager.default.fileExists(atPath: fallbackURL.path) {
+                    resourceURL = fallbackURL
+                }
+            }
+            
+            guard let foundResourceURL = resourceURL else {
+                fatalError("Resource 'internet-radio-streams' not found using any method.")
+            }
+            self.streamsDirectory = foundResourceURL
+            print("Using streamsDirectory: \(self.streamsDirectory.path)")
         }
     }
     
